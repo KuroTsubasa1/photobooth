@@ -2,14 +2,36 @@ const { exec } = require('child_process');
 const fs = require('fs').promises;
 const printerController = require('../../server/controllers/printerController');
 
+// Mock sharp
+const mockSharp = {
+  resize: jest.fn().mockReturnThis(),
+  jpeg: jest.fn().mockReturnThis(),
+  toColorspace: jest.fn().mockReturnThis(),
+  toFile: jest.fn().mockResolvedValue(),
+  metadata: jest.fn().mockResolvedValue({
+    width: 1920,
+    height: 1080,
+    format: 'jpeg',
+    size: 204800
+  })
+};
+
 jest.mock('child_process');
 jest.mock('fs', () => ({
   promises: {
     copyFile: jest.fn(),
     unlink: jest.fn(),
-    stat: jest.fn()
+    stat: jest.fn(),
+    access: jest.fn()
   }
 }));
+jest.mock('fs/promises', () => ({
+  copyFile: jest.fn(),
+  unlink: jest.fn(),
+  stat: jest.fn(),
+  access: jest.fn()
+}));
+jest.mock('sharp', () => jest.fn(() => mockSharp));
 
 describe('PrinterController', () => {
   let mockExec;
@@ -18,13 +40,35 @@ describe('PrinterController', () => {
   beforeEach(() => {
     // Store original printer name and set it for tests
     originalPrinterName = printerController.printerName;
-    printerController.printerName = 'Canon_SELPHY_CP1300';
+    printerController.printerName = 'Canon_SELPHY_CP1500';
+    
+    // Reset sharp mocks
+    mockSharp.resize.mockReturnValue(mockSharp);
+    mockSharp.jpeg.mockReturnValue(mockSharp);
+    mockSharp.toColorspace.mockReturnValue(mockSharp);
+    mockSharp.toFile.mockResolvedValue();
+    mockSharp.metadata.mockResolvedValue({
+      width: 1200,
+      height: 800,
+      format: 'jpeg'
+    });
+    
+    // Reset fs/promises mocks - handle both input and output file stats
+    require('fs').promises.copyFile.mockResolvedValue();
+    require('fs').promises.unlink.mockResolvedValue();
+    require('fs').promises.stat.mockImplementation((path) => {
+      console.log(`DEBUG: stat called for path: ${path}`);
+      const result = { size: 204800 };
+      console.log(`DEBUG: stat returning:`, result);
+      return Promise.resolve(result);
+    });
+    require('fs').promises.access.mockResolvedValue();
     
     mockExec = exec.mockImplementation((command, callback) => {
       if (command.includes('lpstat -p')) {
-        callback(null, 'printer Canon_SELPHY_CP1300 is idle. enabled since Thu 01 Sep 2024', '');
+        callback(null, 'printer Canon_SELPHY_CP1500 is idle. enabled since Thu 01 Sep 2024', '');
       } else if (command.includes('lp -d')) {
-        callback(null, 'request id is Canon_SELPHY_CP1300-123 (1 file(s))', '');
+        callback(null, 'request id is Canon_SELPHY_CP1500-123 (1 file(s))', '');
       } else {
         callback(null, 'Command executed successfully', '');
       }
@@ -44,7 +88,7 @@ describe('PrinterController', () => {
       expect(status).toEqual({
         connected: true,
         ready: true,
-        status: 'printer Canon_SELPHY_CP1300 is idle. enabled since Thu 01 Sep 2024',
+        status: 'printer Canon_SELPHY_CP1500 is idle. enabled since Thu 01 Sep 2024',
         queueLength: 0
       });
       expect(mockExec).toHaveBeenCalledWith(expect.stringContaining('lpstat -p'), expect.any(Function));
@@ -83,21 +127,14 @@ describe('PrinterController', () => {
   describe('printImage', () => {
     const testImagePath = '/path/to/test-image.jpg';
 
-    beforeEach(() => {
-      fs.copyFile.mockResolvedValue();
-      fs.unlink.mockResolvedValue();
-      fs.stat.mockResolvedValue({ size: 1024 });
-    });
+    // No need for additional beforeEach - using global mocks from main beforeEach
 
     it('should print image successfully with default settings', async () => {
       const result = await printerController.printImage(testImagePath);
 
-      expect(fs.copyFile).toHaveBeenCalledWith(
-        testImagePath,
-        expect.stringMatching(/_print\.jpg$/)
-      );
+      // Sharp handles image processing directly, no copyFile needed
       expect(mockExec).toHaveBeenCalledWith(
-        expect.stringMatching(/lp -d Canon_SELPHY_CP1300 -o media=Postcard -o fit-to-page/),
+        expect.stringMatching(/lp -d Canon_SELPHY_CP1500 -o media=Custom\.148x100mm -o copies=1 -o ColorModel=CMYK -o Resolution=300x300dpi/),
         expect.any(Function)
       );
       expect(result).toEqual({
@@ -116,19 +153,22 @@ describe('PrinterController', () => {
       await printerController.printImage(testImagePath, options);
 
       expect(mockExec).toHaveBeenCalledWith(
-        expect.stringMatching(/lp -d Canon_SELPHY_CP1300 -o media=4x6 -o fit-to-page -n 2/),
+        expect.stringMatching(/lp -d Canon_SELPHY_CP1500 -o media=4x6 -o copies=2 -o ColorModel=CMYK -o Resolution=300x300dpi/),
         expect.any(Function)
       );
     });
 
     it('should handle missing image file', async () => {
-      fs.stat.mockRejectedValue(new Error('ENOENT: no such file or directory'));
+        require('fs').promises.access.mockRejectedValue(new Error('ENOENT: no such file or directory'));
+        require('fs').promises.stat.mockRejectedValue(new Error('ENOENT: no such file or directory'));
 
-      await expect(printerController.printImage('/nonexistent/file.jpg'))
-        .rejects.toThrow('ENOENT: no such file or directory');
-    });
+        await expect(printerController.printImage('/nonexistent/file.jpg'))
+          .rejects.toThrow('Image processing failed');
+      });
 
     it('should handle print command failures', async () => {
+      
+      // Mock failed exec call
       mockExec.mockImplementation((command, callback) => {
         if (command.includes('lp -d')) {
           callback(new Error('Printer is offline'), '', 'lp: The printer or class does not exist.');
@@ -136,21 +176,23 @@ describe('PrinterController', () => {
       });
 
       await expect(printerController.printImage(testImagePath))
-        .rejects.toThrow('Printer is offline');
+        .rejects.toThrow('Print failed');
     });
 
     it('should clean up temporary files after printing', async () => {
-      await printerController.printImage(testImagePath);
+        await printerController.printImage(testImagePath);
 
-      expect(fs.unlink).toHaveBeenCalledWith(
-        expect.stringMatching(/_print\.jpg$/)
-      );
-    });
+        expect(require('fs').promises.unlink).toHaveBeenCalledWith(
+          expect.stringMatching(/_print\.jpg$/)
+        );
+      });
 
     it('should clean up temporary files even if printing fails', async () => {
+      
+      // Mock failed printing
       mockExec.mockImplementation((command, callback) => {
         if (command.includes('lp -d')) {
-          callback(new Error('Print failed'), '', '');
+          callback(new Error('Print failed'), '', 'Print failed');
         }
       });
 
@@ -160,7 +202,7 @@ describe('PrinterController', () => {
         // Expected to fail
       }
 
-      expect(fs.unlink).toHaveBeenCalledWith(
+      expect(require('fs').promises.unlink).toHaveBeenCalledWith(
         expect.stringMatching(/_print\.jpg$/)
       );
     });
@@ -168,7 +210,7 @@ describe('PrinterController', () => {
 
   describe('cancelJob', () => {
     it('should cancel print job successfully', async () => {
-      const jobId = 'Canon_SELPHY_CP1300-123';
+      const jobId = 'Canon_SELPHY_CP1500-123';
       const result = await printerController.cancelJob(jobId);
 
       expect(result).toBe('Command executed successfully');
@@ -189,15 +231,15 @@ describe('PrinterController', () => {
     it('should return print queue status', async () => {
       mockExec.mockImplementation((command, callback) => {
         if (command.includes('lpq')) {
-          callback(null, 'Canon_SELPHY_CP1300 is ready\nRank    Owner   Job     File(s)                         Total Size\nactive  user    123     photo_123.jpg                   2048000 bytes', '');
+          callback(null, 'Canon_SELPHY_CP1500 is ready\nRank    Owner   Job     File(s)                         Total Size\nactive  user    123     photo_123.jpg                   2048000 bytes', '');
         }
       });
 
       const queue = await printerController.getQueue();
 
-      expect(queue).toContain('Canon_SELPHY_CP1300 is ready');
+      expect(queue).toContain('Canon_SELPHY_CP1500 is ready');
       expect(queue).toContain('photo_123.jpg');
-      expect(mockExec).toHaveBeenCalledWith('lpq -P Canon_SELPHY_CP1300', expect.any(Function));
+      expect(mockExec).toHaveBeenCalledWith('lpq -P Canon_SELPHY_CP1500', expect.any(Function));
     });
 
     it('should handle empty queue', async () => {

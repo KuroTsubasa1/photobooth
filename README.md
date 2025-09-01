@@ -111,8 +111,8 @@ chmod +x setup.sh && ./setup.sh
 
 | Device | URL | Purpose |
 |--------|-----|---------|
-| 💻 Local | `http://localhost:3112` | Development & testing |
-| 📱 iPad | `http://[YOUR_IP]:3112` | Touch interface |
+| 💻 Local | `http://localhost:3000` | Development & testing |
+| 📱 iPad | `http://[YOUR_IP]:3000` | Touch interface |
 
 ## 🎛️ Configuration
 
@@ -130,7 +130,7 @@ chmod +x setup.sh && ./setup.sh
 
 Edit `.env` file:
 ```bash
-PORT=3112
+PORT=3000
 SERVER_IP=192.168.1.100  # Your MacBook IP
 PRINTER_NAME=Canon_SELPHY_CP1300
 ```
@@ -250,7 +250,7 @@ lpadmin -p Canon_SELPHY_CP1300 -E -v usb://...
 <summary><b>🌐 Network Issues</b></summary>
 
 - Verify all devices on same WiFi network
-- Check firewall allows port 3112
+- Check firewall allows port 3000
 - Use `ipconfig getifaddr en0` to find your IP
 - Test connectivity with `ping [SERVER_IP]`
 </details>

@@ -142,7 +142,7 @@ describe('PhotoboothApp', () => {
       }
 
       connectSocket() {
-        this.socket = global.io('http://localhost:3112');
+        this.socket = global.io('http://localhost:3000');
         
         this.socket.on('connect', () => {
           this.updateConnectionStatus('connected');
@@ -309,7 +309,7 @@ describe('PhotoboothApp', () => {
       expect(app.isCapturing).toBe(false);
       expect(app.isConnected).toBe(false);
       expect(app.recentPhotos).toEqual([]);
-      expect(global.io).toHaveBeenCalledWith('http://localhost:3112');
+      expect(global.io).toHaveBeenCalledWith('http://localhost:3000');
     });
 
     it('should set up socket event listeners', () => {

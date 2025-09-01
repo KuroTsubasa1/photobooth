@@ -16,7 +16,7 @@ class PhotoboothApp {
     }
 
     connectSocket() {
-        const port = 3112; // Match the port in .env
+        const port = 3000; // Match the port in .env
         const serverUrl = window.location.hostname === 'localhost' 
             ? `http://localhost:${port}` 
             : `http://${window.location.hostname}:${port}`;

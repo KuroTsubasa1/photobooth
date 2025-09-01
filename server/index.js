@@ -134,19 +134,7 @@ io.on('connection', (socket) => {
       const photoPath = await videoStreamManager.captureFrameFromStream();
       socket.emit('capture-complete', { path: photoPath });
       
-      // Don't send to printer if capture failed
-      if (photoPath) {
-        console.log('Sending to printer...');
-        socket.emit('print-started');
-        
-        try {
-          await printerController.printImage(photoPath);
-          socket.emit('print-complete');
-        } catch (printError) {
-          console.error('Print error:', printError);
-          socket.emit('error', { message: 'Photo captured but printing failed', error: printError.message });
-        }
-      }
+      // Photo captured successfully - user can now choose to print
       
       // Reset capture state - but keep stream running!
       captureState.isCapturing = false;
