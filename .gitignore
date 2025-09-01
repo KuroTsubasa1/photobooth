@@ -10,3 +10,12 @@ client/dist/
 
 # Temporary files
 tmpfiles*
+
+# Test outputs
+coverage/
+.nyc_output/
+junit.xml
+
+# Test fixtures
+tests/fixtures/captures/
+tests/fixtures/temp/
