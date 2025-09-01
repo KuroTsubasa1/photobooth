@@ -1,159 +1,280 @@
-# Photobooth 📸
+<div align="center">
 
-A multi-device photobooth application featuring live camera preview, instant capture, and automatic printing.
+# 📸 Photobooth Pro
 
-## Components
+*A sophisticated multi-device photobooth application*
 
-- **iPad**: Touch interface for preview and control
-- **MacBook Pro**: Central server and processing hub
-- **Canon EOS M50**: DSLR camera for high-quality photos
-- **Canon Selphy CP1300**: Instant photo printer
+[![License](https://img.shields.io/badge/License-Source%20Available-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org)
+[![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)](https://www.apple.com/macos)
 
-## Features
+**Transform any space into a professional photo studio with live preview, instant capture, and automatic printing.**
 
-- ✨ **Live Camera Preview**: Real-time video stream from Canon EOS M50
-- 📱 **iPad Control Interface**: Touch-friendly interface with live preview
-- 🎯 **Instant Capture**: Direct frame capture from live stream for zero delay
-- 🖼️ **Photo Review**: Review captured photos before printing
-- 🖨️ **Auto-Printing**: Seamless integration with Canon Selphy printer
-- 🎨 **Modern UI**: Elegant design with smooth animations
-- 🔄 **Smart Reconnection**: Persistent camera state across page reloads
-- 📊 **Error Handling**: Toast notifications instead of intrusive alerts
+![Photobooth Demo](https://via.placeholder.com/800x400/667eea/ffffff?text=📸+Live+Preview+%26+Instant+Capture)
 
-## Technical Stack
+</div>
 
-- **Backend**: Node.js, Express.js, Socket.IO
-- **Frontend**: Vanilla JavaScript, CSS3, HTML5
-- **Camera Control**: gphoto2 CLI
-- **Image Processing**: Sharp library
-- **Real-time Communication**: WebSocket (Socket.IO)
-- **Printing**: CUPS/lp integration
+---
 
-## Setup
+## 🌟 Features
+
+<table>
+<tr>
+<td width="50%">
+
+### 🎥 **Live Camera Preview**
+- Real-time video streaming from Canon EOS M50
+- 720×480 optimized preview at 12 FPS
+- Zero-delay frame capture technology
+- Smart camera state persistence
+
+### 📱 **Touch-Optimized Interface**  
+- iPad-native responsive design
+- Elegant animations and transitions
+- Modern glassmorphism UI elements
+- Intuitive gesture controls
+
+</td>
+<td width="50%">
+
+### 🖼️ **Professional Quality**
+- 3000×2000 pixel captures (6 MP)
+- 3:2 aspect ratio for perfect prints
+- 95% JPEG quality with progressive encoding
+- Sharp image processing pipeline
+
+### 🖨️ **Instant Printing**
+- Canon Selphy CP1300 integration
+- Automatic print queue management
+- Photo review before printing
+- Print/retake workflow
+
+</td>
+</tr>
+</table>
+
+## 🏗️ System Architecture
+
+```mermaid
+graph TB
+    A[📱 iPad Interface] --> B[🌐 WebSocket Connection]
+    B --> C[⚡ Node.js Server]
+    C --> D[📷 gphoto2 Camera Control]
+    C --> E[🖨️ CUPS Printer System]
+    C --> F[🖼️ Sharp Image Processing]
+    
+    D --> G[📸 Canon EOS M50]
+    E --> H[🖨️ Canon Selphy CP1300]
+    F --> I[💾 Photo Storage]
+    
+    style A fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
+    style G fill:#ff6b6b,stroke:#333,stroke-width:2px,color:#fff
+    style H fill:#4ecdc4,stroke:#333,stroke-width:2px,color:#fff
+```
+
+## ⚡ Quick Start
 
 ### Prerequisites
 
-- Node.js (v14 or higher)
-- gphoto2 installed via Homebrew
-- Canon EOS M50 connected via USB
-- Canon Selphy CP1300 printer configured
+<details>
+<summary><b>📋 System Requirements</b></summary>
 
-### Installation
+- **macOS** 10.15+ (Catalina or later)
+- **Node.js** 18.0+ with npm
+- **gphoto2** (installed via Homebrew)
+- **Canon EOS M50** camera
+- **Canon Selphy CP1300** printer
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/KuroTsubasa1/photobooth.git
-   cd photobooth
-   ```
+</details>
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Configure environment:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
-
-4. Run setup script (macOS):
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-
-### Running the Application
+### 🚀 Installation
 
 ```bash
-# Start the server
+# Clone the repository
+git clone https://github.com/KuroTsubasa1/photobooth.git
+cd photobooth
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+
+# Run setup script
+chmod +x setup.sh && ./setup.sh
+
+# Start the application
 ./start.sh
-
-# Or manually
-npm start
 ```
 
-Access the application:
-- **Local**: http://localhost:3112
-- **iPad**: http://[YOUR_IP]:3112
+### 🌐 Access Points
 
-## Camera Settings
+| Device | URL | Purpose |
+|--------|-----|---------|
+| 💻 Local | `http://localhost:3112` | Development & testing |
+| 📱 iPad | `http://[YOUR_IP]:3112` | Touch interface |
 
-The application captures photos in:
-- **Resolution**: 3000x2000 pixels (6 MP)
-- **Aspect Ratio**: 3:2 (landscape)
-- **Quality**: 95% JPEG with progressive encoding
-- **Preview**: 720x480 optimized for real-time streaming
+## 🎛️ Configuration
 
-## Usage
+### Camera Settings
 
-1. Connect your Canon EOS M50 via USB
-2. Open the web interface on your iPad
-3. Click "Connect to Camera" to start live preview
-4. Use "Take Photo" to capture images
-5. Review photos in the modal dialog
-6. Choose "Print Photo" or "Retake" for each capture
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| **Capture Resolution** | 3000×2000 | High-quality 6MP photos |
+| **Preview Resolution** | 720×480 | Optimized streaming |
+| **Aspect Ratio** | 3:2 | Professional photo format |
+| **Frame Rate** | 12 FPS | Smooth live preview |
+| **JPEG Quality** | 95% | Near-lossless compression |
 
-## Architecture
+### Network Configuration
 
-```
-┌─────────────┐    WebSocket    ┌─────────────┐
-│    iPad     │◄──────────────►│   Server    │
-│  (Client)   │                │  (Node.js)  │
-└─────────────┘                └─────────────┘
-                                       │
-                                       ▼
-                               ┌─────────────┐
-                               │   gphoto2   │
-                               │ (Camera)    │
-                               └─────────────┘
-                                       │
-                                       ▼
-                               ┌─────────────┐
-                               │    CUPS     │
-                               │ (Printer)   │
-                               └─────────────┘
+Edit `.env` file:
+```bash
+PORT=3112
+SERVER_IP=192.168.1.100  # Your MacBook IP
+PRINTER_NAME=Canon_SELPHY_CP1300
 ```
 
-## Development
+## 🎯 Usage Guide
 
-The application consists of:
+### 📋 Step-by-Step Operation
 
-- `server/index.js` - Main server and Socket.IO handlers
-- `server/controllers/videoStreamManager.js` - Camera streaming logic
-- `server/controllers/cameraController.js` - Camera operations
-- `server/controllers/printerController.js` - Printer integration
-- `client/` - Frontend files (HTML, CSS, JavaScript)
+1. **🔌 Hardware Setup**
+   - Connect Canon EOS M50 via USB
+   - Power on Canon Selphy CP1300 printer
+   - Ensure all devices are on same WiFi network
 
-## Troubleshooting
+2. **🚀 Start Session**
+   - Run `./start.sh` on MacBook
+   - Open iPad browser to your server URL
+   - Tap "Connect to Camera" to begin
 
-### Camera Issues
-- Ensure camera is in PC connection mode
-- Kill any interfering processes: `sudo killall PTPCamera`
-- Check USB connection and try different ports
+3. **📸 Photo Workflow**
+   - Live preview appears automatically
+   - Tap "Take Photo" when ready
+   - Review image in full-screen modal
+   - Choose "Print Photo" or "Retake"
 
-### Printing Issues
-- Verify printer is configured in System Preferences
-- Check CUPS status: `lpstat -p`
-- Ensure printer has paper and is powered on
+4. **🖨️ Printing**
+   - Photos automatically queued for printing
+   - Monitor print status via notifications
+   - Collect physical prints from Selphy
 
-### Network Issues
-- Verify iPad and MacBook are on the same WiFi network
-- Check firewall settings
-- Ensure port 3112 is not blocked
+## 🏛️ Project Structure
 
-## License
+```
+photobooth/
+├── 📁 client/                 # Frontend application
+│   ├── 📄 index.html         # Main HTML interface
+│   ├── 🎨 styles.css         # Responsive CSS styling
+│   └── ⚡ app.js             # Client-side JavaScript
+├── 📁 server/                 # Backend application
+│   ├── 📄 index.js           # Express server & Socket.IO
+│   └── 📁 controllers/       # Business logic modules
+│       ├── 📷 videoStreamManager.js    # Camera streaming
+│       ├── 📸 cameraController.js      # Camera operations
+│       └── 🖨️ printerController.js     # Print management
+├── 🔧 package.json          # Dependencies & scripts
+├── 🚀 start.sh              # Startup script
+└── 📖 README.md             # This documentation
+```
 
-MIT License - see LICENSE file for details
+## 🛠️ Advanced Configuration
 
-## Contributing
+### Custom Camera Settings
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+```javascript
+// server/controllers/videoStreamManager.js
+const cameraSettings = {
+  resolution: '3000x2000',
+  quality: 95,
+  aspectRatio: '3:2',
+  frameRate: 12
+};
+```
 
-## Acknowledgments
+### Print Customization
 
-Built with love for creating memorable photo experiences! 📸✨
+```javascript
+// server/controllers/printerController.js
+const printOptions = {
+  media: 'Postcard',
+  quality: 'high',
+  fitToPage: true
+};
+```
+
+## 🔧 Troubleshooting
+
+<details>
+<summary><b>📷 Camera Issues</b></summary>
+
+**Camera not detected:**
+```bash
+# Kill interfering processes
+sudo killall PTPCamera
+
+# Check camera connection
+gphoto2 --auto-detect
+
+# Verify USB mode
+# Set camera to PC connection mode
+```
+
+**Stream errors:**
+- Ensure camera is not in use by other applications
+- Try different USB ports
+- Restart the camera
+
+</details>
+
+<details>
+<summary><b>🖨️ Printer Issues</b></summary>
+
+**Printer not found:**
+```bash
+# Check CUPS status
+lpstat -p
+
+# Add printer if needed
+lpadmin -p Canon_SELPHY_CP1300 -E -v usb://...
+```
+
+**Print failures:**
+- Verify printer has paper loaded
+- Check ink/ribbon levels
+- Ensure printer is set as default
+</details>
+
+<details>
+<summary><b>🌐 Network Issues</b></summary>
+
+- Verify all devices on same WiFi network
+- Check firewall allows port 3112
+- Use `ipconfig getifaddr en0` to find your IP
+- Test connectivity with `ping [SERVER_IP]`
+</details>
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md).
+
+1. **🍴 Fork** the repository
+2. **🌿 Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **💾 Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **📤 Push** to the branch (`git push origin feature/amazing-feature`)
+5. **🔄 Open** a Pull Request
+
+## 📄 License
+
+This project is licensed under the **Source Available License** - see the [LICENSE](LICENSE) file for details.
+
+**Summary**: You may view, study, and fork this code for personal and educational purposes. Commercial use requires explicit permission.
+
+## 🙏 Acknowledgments
+
+- **📷 Canon** - For excellent camera hardware
+- **🖨️ Canon Selphy** - For instant printing technology  
+- **⚡ gphoto2** - For camera control capabilities
+- **🎨 Sharp** - For blazing-fast image processing
+- **🌐 Socket.IO** - For real-time communication
