@@ -1,7 +1,22 @@
-const { spawn, exec } = require('child_process');
-const fs = require('fs').promises;
-const path = require('path');
-const VideoStreamManager = require('../../server/controllers/videoStreamManager');
+// Mock Sharp before any imports
+jest.mock('sharp', () => {
+  const mockSharpInstance = {
+    resize: jest.fn().mockReturnThis(),
+    jpeg: jest.fn().mockReturnThis(),
+    toFile: jest.fn().mockResolvedValue(),
+    toBuffer: jest.fn().mockResolvedValue(Buffer.from('fake-image-data')),
+    metadata: jest.fn().mockResolvedValue({
+      width: 640,
+      height: 480,
+      format: 'jpeg'
+    })
+  };
+  
+  const mockSharp = jest.fn(() => mockSharpInstance);
+  mockSharp.cache = jest.fn();
+  mockSharp.concurrency = jest.fn();
+  return mockSharp;
+});
 
 // Mock child_process
 jest.mock('child_process');
@@ -12,6 +27,11 @@ jest.mock('fs', () => ({
   }
 }));
 
+const { spawn, exec } = require('child_process');
+const fs = require('fs').promises;
+const path = require('path');
+const VideoStreamManager = require('../../server/controllers/videoStreamManager');
+
 describe('VideoStreamManager', () => {
   let videoStreamManager;
   let mockSpawn;
@@ -19,10 +39,13 @@ describe('VideoStreamManager', () => {
   let mockProcess;
 
   beforeEach(() => {
-    // Reset the singleton instance
-    jest.resetModules();
-    const VideoStreamManager = require('../../server/controllers/videoStreamManager');
-    videoStreamManager = new VideoStreamManager.constructor();
+    // Use the singleton instance
+    videoStreamManager = VideoStreamManager;
+    
+    // Reset singleton state
+    videoStreamManager.isStreaming = false;
+    videoStreamManager.streamProcess = null;
+    videoStreamManager.lastHighQualityFrame = null;
     
     mockProcess = {
       stdout: {

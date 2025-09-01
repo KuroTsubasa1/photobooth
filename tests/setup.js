@@ -26,7 +26,7 @@ jest.mock('child_process', () => ({
 
 // Mock Sharp image processing
 jest.mock('sharp', () => {
-  return jest.fn(() => ({
+  const mockSharpInstance = {
     resize: jest.fn().mockReturnThis(),
     jpeg: jest.fn().mockReturnThis(),
     toFile: jest.fn().mockResolvedValue(),
@@ -36,7 +36,12 @@ jest.mock('sharp', () => {
       height: 480,
       format: 'jpeg'
     })
-  }));
+  };
+  
+  const mockSharp = jest.fn(() => mockSharpInstance);
+  mockSharp.cache = jest.fn();
+  mockSharp.concurrency = jest.fn();
+  return mockSharp;
 });
 
 // Mock file system operations
@@ -47,7 +52,9 @@ jest.mock('fs', () => ({
     readFile: jest.fn(),
     writeFile: jest.fn(),
     unlink: jest.fn(),
-    mkdir: jest.fn()
+    mkdir: jest.fn(),
+    copyFile: jest.fn(),
+    stat: jest.fn()
   }
 }));
 

@@ -92,6 +92,20 @@ describe('PhotoboothApp', () => {
     // Reset all mocks
     jest.clearAllMocks();
     
+    // Reset DOM element mocks
+    Object.keys(mockElements).forEach(key => {
+      if (mockElements[key].classList) {
+        mockElements[key].classList.add = jest.fn();
+        mockElements[key].classList.remove = jest.fn();
+      }
+    });
+    
+    // Re-setup document mock
+    global.document.getElementById = jest.fn((id) => mockElements[id] || null);
+    
+    // Re-create the fetch mock
+    global.window.fetch = jest.fn();
+    
     // Mock fetch responses
     global.window.fetch.mockImplementation((url) => {
       if (url.includes('/camera/status')) {
@@ -205,6 +219,8 @@ describe('PhotoboothApp', () => {
         if (data && data.data) {
           previewImage.style.display = 'block';
           previewImage.src = `data:${data.mimeType};base64,${data.data}`;
+        } else {
+          previewImage.style.display = 'none';
         }
       }
 

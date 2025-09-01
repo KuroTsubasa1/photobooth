@@ -57,8 +57,6 @@ describe('CameraController', () => {
 
       expect(status).toEqual({
         connected: false,
-        model: null,
-        port: null,
         error: 'gphoto2 not found'
       });
     });
@@ -105,20 +103,17 @@ describe('CameraController', () => {
       const filename = 'test-photo.jpg';
       const result = await cameraController.captureImage(filename);
 
-      expect(result).toBe('Command executed successfully');
-      expect(mockExec).toHaveBeenCalledWith(
-        `gphoto2 --capture-image-and-download --filename ${filename}`,
-        expect.any(Function)
-      );
+      expect(result).toContain('captures/test-photo.jpg');
+      expect(mockExec).toHaveBeenCalledWith('gphoto2 --set-config imageformat=0', expect.any(Function));
     });
 
     it('should use default filename if none provided', async () => {
       await cameraController.captureImage();
 
-      expect(mockExec).toHaveBeenCalledWith(
-        expect.stringMatching(/gphoto2 --capture-image-and-download --filename photo_\d+\.jpg/),
-        expect.any(Function)
-      );
+      expect(mockExec).toHaveBeenCalledWith('gphoto2 --set-config imageformat=0', expect.any(Function));
+      // Should have been called with the capture command containing a timestamped filename
+      const captureCall = mockExec.mock.calls.find(call => call[0].includes('capture-image-and-download'));
+      expect(captureCall[0]).toMatch(/photo_\d+\.jpg/);
     });
 
     it('should handle capture errors', async () => {
@@ -137,19 +132,18 @@ describe('CameraController', () => {
       const result = await cameraController.capturePreview(filename);
 
       expect(result).toBe('Command executed successfully');
-      expect(mockExec).toHaveBeenCalledWith(
-        `gphoto2 --capture-preview --filename ${filename}`,
-        expect.any(Function)
-      );
+      // Check the actual call includes the full path
+      const call = mockExec.mock.calls[0][0];
+      expect(call).toContain('gphoto2 --capture-preview --filename=');
+      expect(call).toContain('preview.jpg');
     });
 
     it('should use default preview filename', async () => {
       await cameraController.capturePreview();
 
-      expect(mockExec).toHaveBeenCalledWith(
-        expect.stringMatching(/gphoto2 --capture-preview --filename preview_\d+\.jpg/),
-        expect.any(Function)
-      );
+      // Check the call includes a timestamped filename
+      const call = mockExec.mock.calls[0][0];
+      expect(call).toMatch(/preview_\d+\.jpg/);
     });
   });
 });

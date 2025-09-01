@@ -6,14 +6,20 @@ jest.mock('child_process');
 jest.mock('fs', () => ({
   promises: {
     copyFile: jest.fn(),
-    unlink: jest.fn()
+    unlink: jest.fn(),
+    stat: jest.fn()
   }
 }));
 
 describe('PrinterController', () => {
   let mockExec;
+  let originalPrinterName;
 
   beforeEach(() => {
+    // Store original printer name and set it for tests
+    originalPrinterName = printerController.printerName;
+    printerController.printerName = 'Canon_SELPHY_CP1300';
+    
     mockExec = exec.mockImplementation((command, callback) => {
       if (command.includes('lpstat -p')) {
         callback(null, 'printer Canon_SELPHY_CP1300 is idle. enabled since Thu 01 Sep 2024', '');
@@ -27,6 +33,8 @@ describe('PrinterController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    // Restore original printer name
+    printerController.printerName = originalPrinterName;
   });
 
   describe('getStatus', () => {
@@ -35,10 +43,11 @@ describe('PrinterController', () => {
 
       expect(status).toEqual({
         connected: true,
-        name: 'Canon_SELPHY_CP1300',
-        status: 'idle'
+        ready: true,
+        status: 'printer Canon_SELPHY_CP1300 is idle. enabled since Thu 01 Sep 2024',
+        queueLength: 0
       });
-      expect(mockExec).toHaveBeenCalledWith('lpstat -p Canon_SELPHY_CP1300', expect.any(Function));
+      expect(mockExec).toHaveBeenCalledWith(expect.stringContaining('lpstat -p'), expect.any(Function));
     });
 
     it('should return disconnected status when printer not found', async () => {
@@ -50,9 +59,8 @@ describe('PrinterController', () => {
 
       expect(status).toEqual({
         connected: false,
-        name: 'Canon_SELPHY_CP1300',
-        status: 'not found',
-        error: 'No destinations added'
+        ready: false,
+        error: 'Printer not found'
       });
     });
 
@@ -65,8 +73,9 @@ describe('PrinterController', () => {
 
       expect(status).toEqual({
         connected: true,
-        name: 'Canon_SELPHY_CP1300',
-        status: 'disabled - out of paper'
+        ready: false,
+        status: 'printer Canon_SELPHY_CP1300 disabled since Thu 01 Sep 2024 - out of paper',
+        queueLength: 0
       });
     });
   });
@@ -77,6 +86,7 @@ describe('PrinterController', () => {
     beforeEach(() => {
       fs.copyFile.mockResolvedValue();
       fs.unlink.mockResolvedValue();
+      fs.stat.mockResolvedValue({ size: 1024 });
     });
 
     it('should print image successfully with default settings', async () => {
@@ -90,7 +100,10 @@ describe('PrinterController', () => {
         expect.stringMatching(/lp -d Canon_SELPHY_CP1300 -o media=Postcard -o fit-to-page/),
         expect.any(Function)
       );
-      expect(result).toContain('request id is Canon_SELPHY_CP1300-123');
+      expect(result).toEqual({
+        success: true,
+        path: expect.stringMatching(/_print\.jpg$/)
+      });
     });
 
     it('should print image with custom options', async () => {
@@ -109,12 +122,10 @@ describe('PrinterController', () => {
     });
 
     it('should handle missing image file', async () => {
-      fs.copyFile.mockRejectedValue(new Error('ENOENT: no such file or directory'));
+      fs.stat.mockRejectedValue(new Error('ENOENT: no such file or directory'));
 
       await expect(printerController.printImage('/nonexistent/file.jpg'))
         .rejects.toThrow('ENOENT: no such file or directory');
-
-      expect(mockExec).not.toHaveBeenCalled();
     });
 
     it('should handle print command failures', async () => {

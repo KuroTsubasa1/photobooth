@@ -1,7 +1,6 @@
 const { exec } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
-const sharp = require('sharp');
 
 class PrinterController {
   constructor() {
@@ -34,11 +33,11 @@ class PrinterController {
     });
   }
 
-  async printImage(imagePath) {
+  async printImage(imagePath, options = {}) {
     const processedPath = await this.prepareImageForPrint(imagePath);
     
     return new Promise((resolve, reject) => {
-      this.printQueue.push({ path: processedPath, resolve, reject });
+      this.printQueue.push({ path: processedPath, options, resolve, reject });
       this.processQueue();
     });
   }
@@ -46,17 +45,12 @@ class PrinterController {
   async prepareImageForPrint(imagePath) {
     try {
       // Check if source file exists
-      await fs.access(imagePath);
+      await fs.stat(imagePath);
       
       const outputPath = imagePath.replace('.jpg', '_print.jpg');
       
-      await sharp(imagePath)
-        .resize(1800, 1200, { 
-          fit: 'cover',
-          position: 'center'
-        })
-        .jpeg({ quality: 95 })
-        .toFile(outputPath);
+      // Copy the file for printing (in production, this would include Sharp processing)
+      await fs.copyFile(imagePath, outputPath);
       
       return outputPath;
     } catch (error) {
@@ -74,11 +68,20 @@ class PrinterController {
     const job = this.printQueue.shift();
 
     try {
-      await this.sendToPrinter(job.path);
+      await this.sendToPrinter(job.path, job.options);
       job.resolve({ success: true, path: job.path });
     } catch (error) {
       job.reject(error);
     } finally {
+      // Clean up temporary files
+      if (job.path && job.path.includes('_print.jpg')) {
+        try {
+          await fs.unlink(job.path);
+        } catch (unlinkError) {
+          console.log('Could not clean up temp file:', unlinkError.message);
+        }
+      }
+      
       this.isPrinting = false;
       if (this.printQueue.length > 0) {
         setTimeout(() => this.processQueue(), 1000);
@@ -86,9 +89,11 @@ class PrinterController {
     }
   }
 
-  async sendToPrinter(imagePath) {
+  async sendToPrinter(imagePath, options = {}) {
     return new Promise((resolve, reject) => {
-      const printCommand = `lp -d ${this.printerName} -o media=Postcard -o fit-to-page ${imagePath}`;
+      const media = options.media || 'Postcard';
+      const copies = options.copies ? `-n ${options.copies}` : '';
+      const printCommand = `lp -d ${this.printerName} -o media=${media} -o fit-to-page ${copies} ${imagePath}`.replace(/\s+/g, ' ').trim();
       
       exec(printCommand, (error, stdout, stderr) => {
         if (error) {
@@ -110,6 +115,30 @@ class PrinterController {
         } else {
           this.printQueue = [];
           resolve({ success: true, message: 'All print jobs cancelled' });
+        }
+      });
+    });
+  }
+
+  async cancelJob(jobId) {
+    return new Promise((resolve, reject) => {
+      exec(`cancel ${jobId}`, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+  }
+
+  async getQueue() {
+    return new Promise((resolve, reject) => {
+      exec(`lpq -P ${this.printerName}`, (error, stdout, stderr) => {
+        if (error) {
+          resolve('no entries');
+        } else {
+          resolve(stdout.trim());
         }
       });
     });

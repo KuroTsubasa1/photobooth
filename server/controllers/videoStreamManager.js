@@ -2,6 +2,7 @@ const { spawn, exec } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const EventEmitter = require('events');
+const sharp = require('sharp');
 
 class VideoStreamManager extends EventEmitter {
   constructor() {
@@ -61,7 +62,6 @@ class VideoStreamManager extends EventEmitter {
           const now = Date.now();
           if (now - lastFrameTime >= frameInterval) {
             // Emit the frame for preview (can be lower quality)
-            const sharp = require('sharp');
             sharp(frame)
               .resize(720, 480, { fit: 'inside' })
               .jpeg({ quality: 60 })
@@ -128,7 +128,6 @@ class VideoStreamManager extends EventEmitter {
         const frameData = await fs.readFile(tempFile);
         
         // Resize for better performance on iPad
-        const sharp = require('sharp');
         const resizedBuffer = await sharp(frameData)
           .resize(720, 480, { fit: 'inside' })
           .jpeg({ quality: 40 })
@@ -183,7 +182,6 @@ class VideoStreamManager extends EventEmitter {
     
     try {
       // Save the high-quality frame with better processing
-      const sharp = require('sharp');
       
       // Get the image metadata first
       const metadata = await sharp(this.lastHighQualityFrame).metadata();

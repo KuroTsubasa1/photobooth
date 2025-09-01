@@ -21,13 +21,59 @@ class CameraController {
     return new Promise((resolve, reject) => {
       exec('gphoto2 --auto-detect', (error, stdout, stderr) => {
         if (error) {
-          reject({ connected: false, error: error.message });
+          resolve({ connected: false, error: error.message });
         } else {
-          const connected = stdout.includes('Canon');
-          resolve({ 
-            connected,
-            model: connected ? stdout.split('\n').find(line => line.includes('Canon')) : null
-          });
+          const lines = stdout.split('\n');
+          const cameraLine = lines.find(line => line.includes('Canon'));
+          
+          if (cameraLine) {
+            // Parse "Canon EOS M50                  usb:001,002"
+            const parts = cameraLine.split(/\s+/);
+            const model = parts.slice(0, -1).join(' ').trim();
+            const port = parts[parts.length - 1];
+            
+            resolve({ 
+              connected: true,
+              model,
+              port
+            });
+          } else {
+            resolve({ 
+              connected: false,
+              model: null,
+              port: null
+            });
+          }
+        }
+      });
+    });
+  }
+
+  async getConfig(key) {
+    return new Promise((resolve, reject) => {
+      exec(`gphoto2 --get-config ${key}`, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          // Parse output like "Current: AUTO"
+          const match = stdout.match(/Current:\s*(.+)/);
+          if (match) {
+            resolve(match[1].trim());
+          } else {
+            resolve(stdout.trim());
+          }
+        }
+      });
+    });
+  }
+
+  async setConfig(key, value) {
+    return new Promise((resolve, reject) => {
+      exec(`gphoto2 --set-config ${key}=${value}`, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(stdout);
         }
       });
     });
@@ -75,10 +121,12 @@ class CameraController {
     });
   }
 
-  async captureImage() {
+  async captureImage(filename) {
     return new Promise((resolve, reject) => {
-      const timestamp = Date.now();
-      const filename = `photo_${timestamp}.jpg`;
+      if (!filename) {
+        const timestamp = Date.now();
+        filename = `photo_${timestamp}.jpg`;
+      }
       const filepath = path.join(this.captureDir, filename);
       
       // First, set camera to capture JPEG instead of RAW
@@ -111,6 +159,24 @@ class CameraController {
             resolve(filepath);
           }
         });
+      });
+    });
+  }
+
+  async capturePreview(filename) {
+    return new Promise((resolve, reject) => {
+      if (!filename) {
+        const timestamp = Date.now();
+        filename = `preview_${timestamp}.jpg`;
+      }
+      const filepath = path.join(this.captureDir, filename);
+      
+      exec(`gphoto2 --capture-preview --filename=${filepath}`, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(stdout);
+        }
       });
     });
   }
