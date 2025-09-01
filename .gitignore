@@ -1,0 +1,12 @@
+node_modules/
+.env
+captures/
+*.log
+.DS_Store
+client/dist/
+
+# Claude Code settings
+.claude/
+
+# Temporary files
+tmpfiles*

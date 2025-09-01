@@ -1,0 +1,246 @@
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+const path = require('path');
+require('dotenv').config();
+
+const cameraController = require('./controllers/cameraController');
+const printerController = require('./controllers/printerController');
+const videoStreamManager = require('./controllers/videoStreamManager');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../client')));
+app.use('/captures', express.static(path.join(__dirname, '../captures')));
+
+const PORT = process.env.PORT || 3000;
+
+let isStreamActive = false;
+
+// Forward video frames to all connected clients
+videoStreamManager.on('frame', (frame) => {
+  io.emit('preview-frame', frame);
+});
+
+// Handle stream ending unexpectedly
+videoStreamManager.on('stream-ended', () => {
+  console.log('Video stream ended unexpectedly');
+  isStreamActive = false;
+  io.emit('camera-status', { 
+    connected: false, 
+    model: 'Canon EOS M50',
+    message: 'Camera stream interrupted - click Connect to restart',
+    streamActive: false
+  });
+});
+
+// Handle stream starting
+videoStreamManager.on('stream-started', () => {
+  console.log('Video stream started');
+  isStreamActive = true;
+  io.emit('camera-status', { 
+    connected: true, 
+    model: 'Canon EOS M50',
+    message: 'Camera connected with live preview',
+    streamActive: true
+  });
+});
+
+io.on('connection', (socket) => {
+  console.log('iPad client connected');
+  
+  // Send current camera status based on actual stream state
+  socket.emit('camera-status', { 
+    connected: isStreamActive, 
+    model: 'Canon EOS M50',
+    message: isStreamActive 
+      ? 'Camera connected with live preview'
+      : 'Click "Connect to Camera" to start live preview',
+    streamActive: isStreamActive
+  });
+
+  socket.on('connect-camera', async () => {
+    if (!isStreamActive) {
+      console.log('Starting camera stream...');
+      await videoStreamManager.startStream();
+      // Status update will be sent via stream-started event
+    }
+  });
+  
+  socket.on('disconnect-camera', async () => {
+    if (isStreamActive) {
+      console.log('Stopping camera stream...');
+      await videoStreamManager.stopStream();
+      // Status will be updated via stream-ended event
+    }
+  });
+
+  socket.on('request-preview', async () => {
+    // Preview is handled by video stream manager
+    // Just acknowledge the request
+  });
+
+  let captureState = {
+    isCapturing: false,
+    prepared: false,
+    error: null
+  };
+
+  socket.on('prepare-capture', async () => {
+    try {
+      // Prevent multiple preparations
+      if (captureState.isCapturing || captureState.prepared) {
+        console.log('Capture already in progress, ignoring preparation request');
+        return;
+      }
+      
+      console.log('Preparing for stream capture...');
+      captureState.isCapturing = true;
+      captureState.prepared = false;
+      captureState.error = null;
+      
+      // No need to stop stream - we're capturing from it!
+      // Just mark as ready immediately
+      captureState.prepared = true;
+      console.log('Stream capture ready');
+      
+    } catch (error) {
+      console.error('Capture preparation error:', error);
+      captureState.error = error;
+      captureState.prepared = false;
+    }
+  });
+
+  socket.on('execute-capture', async () => {
+    try {
+      if (!captureState.prepared || captureState.error) {
+        throw new Error('Stream not ready - please try again');
+      }
+      
+      console.log('Capturing frame from stream...');
+      socket.emit('capture-started');
+      
+      // Capture directly from the video stream - instant!
+      const photoPath = await videoStreamManager.captureFrameFromStream();
+      socket.emit('capture-complete', { path: photoPath });
+      
+      // Don't send to printer if capture failed
+      if (photoPath) {
+        console.log('Sending to printer...');
+        socket.emit('print-started');
+        
+        try {
+          await printerController.printImage(photoPath);
+          socket.emit('print-complete');
+        } catch (printError) {
+          console.error('Print error:', printError);
+          socket.emit('error', { message: 'Photo captured but printing failed', error: printError.message });
+        }
+      }
+      
+      // Reset capture state - but keep stream running!
+      captureState.isCapturing = false;
+      captureState.prepared = false;
+      captureState.error = null;
+      
+      // Stream continues running - no interruption needed!
+      
+    } catch (error) {
+      console.error('Stream capture error:', error);
+      socket.emit('error', { message: 'Failed to capture from stream', error: error.message });
+      
+      // Reset capture state on error
+      captureState.isCapturing = false;
+      captureState.prepared = false;
+      captureState.error = error;
+    }
+  });
+
+  socket.on('print-photo', async (data) => {
+    try {
+      console.log('Printing photo:', data.path);
+      socket.emit('print-started');
+      
+      await printerController.printImage(data.path);
+      socket.emit('print-complete');
+    } catch (error) {
+      console.error('Print error:', error);
+      socket.emit('error', { message: 'Printing failed', error: error.message });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('iPad client disconnected');
+  });
+});
+
+app.get('/camera/status', async (req, res) => {
+  try {
+    const status = await cameraController.getStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/printer/status', async (req, res) => {
+  try {
+    const status = await printerController.getStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Photobooth server running on port ${PORT}`);
+  console.log(`Local access: http://localhost:${PORT}`);
+  console.log(`iPad access: http://192.168.178.35:${PORT}`);
+});
+
+// Graceful shutdown handlers
+const gracefulShutdown = () => {
+  console.log('\nShutting down gracefully...');
+  
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force close after 5 seconds
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 5000);
+};
+
+// Listen for termination signals
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+// Handle nodemon restarts
+process.once('SIGUSR2', () => {
+  gracefulShutdown();
+  process.kill(process.pid, 'SIGUSR2');
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  gracefulShutdown();
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown();
+});
