@@ -276,5 +276,7 @@ This project is licensed under the **Source Available License** - see the [LICEN
 - **📷 Canon** - For excellent camera hardware
 - **🖨️ Canon Selphy** - For instant printing technology  
 - **⚡ gphoto2** - For camera control capabilities
-- **🎨 Sharp** - For blazing-fast image processing
+- **🎨 Sharp** - For fast image processing
 - **🌐 Socket.IO** - For real-time communication
+- **🎥 FFMPEG** - For video stream processing
+- **🔄 v4l2loopback** - For virtual video device creation
