@@ -98,14 +98,14 @@ io.on('connection', (socket) => {
 
   socket.on('prepare-capture', async () => {
     try {
-      // Prevent multiple preparations
-      if (captureState.isCapturing || captureState.prepared) {
-        console.log('Capture already in progress, ignoring preparation request');
+      // Only prevent preparation if currently executing a capture
+      if (captureState.isCapturing && captureState.prepared) {
+        console.log('Capture currently executing, ignoring preparation request');
         return;
       }
       
       console.log('Preparing for stream capture...');
-      captureState.isCapturing = true;
+      captureState.isCapturing = false; // Reset any previous state
       captureState.prepared = false;
       captureState.error = null;
       
@@ -118,6 +118,7 @@ io.on('connection', (socket) => {
       console.error('Capture preparation error:', error);
       captureState.error = error;
       captureState.prepared = false;
+      captureState.isCapturing = false;
     }
   });
 
@@ -126,6 +127,9 @@ io.on('connection', (socket) => {
       if (!captureState.prepared || captureState.error) {
         throw new Error('Stream not ready - please try again');
       }
+      
+      // Mark as currently capturing
+      captureState.isCapturing = true;
       
       console.log('Capturing frame from stream...');
       socket.emit('capture-started');

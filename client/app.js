@@ -5,6 +5,7 @@ class PhotoboothApp {
         this.isConnected = false;
         this.previewInterval = null;
         this.recentPhotos = [];
+        this.captureTimeout = null;
         this.init();
     }
 
@@ -50,7 +51,18 @@ class PhotoboothApp {
         });
 
         this.socket.on('capture-complete', (data) => {
+            this.clearCaptureTimeout();
+            this.isCapturing = false;
+            this.updateCaptureButton();
             this.onCaptureComplete(data);
+            
+            // Immediately prepare for next capture
+            setTimeout(() => {
+                if (this.isConnected) {
+                    console.log('Preparing camera for next capture...');
+                    this.socket.emit('prepare-capture');
+                }
+            }, 1000);
         });
 
         this.socket.on('print-started', () => {
@@ -59,12 +71,19 @@ class PhotoboothApp {
 
         this.socket.on('print-complete', () => {
             this.showNotification('Photo printed successfully!');
-            this.isCapturing = false;
-            this.updateCaptureButton();
+            
+            // Re-prepare camera for next capture
+            setTimeout(() => {
+                if (this.isConnected) {
+                    console.log('Re-preparing camera for next photo...');
+                    this.socket.emit('prepare-capture');
+                }
+            }, 3000);
         });
 
         this.socket.on('error', (error) => {
             this.showErrorToast(error.message);
+            this.clearCaptureTimeout();
             this.isCapturing = false;
             this.updateCaptureButton();
             
@@ -75,20 +94,6 @@ class PhotoboothApp {
                     this.socket.emit('prepare-capture');
                 }
             }, 5000);
-        });
-        
-        this.socket.on('print-complete', () => {
-            this.showNotification('Photo printed successfully!');
-            this.isCapturing = false;
-            this.updateCaptureButton();
-            
-            // Re-prepare camera for next capture
-            setTimeout(() => {
-                if (this.isConnected) {
-                    console.log('Re-preparing camera for next photo...');
-                    this.socket.emit('prepare-capture');
-                }
-            }, 3000);
         });
     }
 
@@ -269,6 +274,14 @@ class PhotoboothApp {
         
         this.isCapturing = true;
         this.updateCaptureButton();
+        
+        // Set timeout to reset button if capture hangs (15 seconds)
+        this.captureTimeout = setTimeout(() => {
+            console.warn('Capture timeout - resetting button state');
+            this.isCapturing = false;
+            this.updateCaptureButton();
+            this.showErrorToast('Capture timed out - please try again');
+        }, 15000);
         
         // Show countdown immediately - preparation already started when button appeared
         await this.showCountdown();
@@ -459,6 +472,13 @@ class PhotoboothApp {
         }
         // Trigger new capture
         this.capturePhoto();
+    }
+
+    clearCaptureTimeout() {
+        if (this.captureTimeout) {
+            clearTimeout(this.captureTimeout);
+            this.captureTimeout = null;
+        }
     }
 
     sleep(ms) {
