@@ -76,7 +76,11 @@ echo ""
 # Check what features are available
 echo "📷 Available features:"
 if command -v ffmpeg &> /dev/null; then
-    echo "  ✅ High-resolution capture (2560x1440) via gphoto2 + ffmpeg pipeline"
+    echo "  ✅ Full resolution capture system:"
+    echo "      📹 Preview: 480x320 live video stream (continuous)"
+    echo "      📷 Capture: Full sensor resolution (24MP, ~6000x4000)"
+    echo "      🔄 Method: Stop stream → Capture → Restart stream"
+    echo "      🎥 HDMI option: For high-res preview - requires capture card"
 else
     echo "  ⚠️  Basic resolution capture (ffmpeg not installed)"
 fi

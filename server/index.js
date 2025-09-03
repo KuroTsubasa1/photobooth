@@ -38,7 +38,7 @@ videoStreamManager.on('stream-ended', () => {
   isStreamActive = false;
   io.emit('camera-status', { 
     connected: false, 
-    model: 'Canon EOS M50',
+    model: 'HDMI Capture (1080p)',
     message: 'Camera stream interrupted - click Connect to restart',
     streamActive: false
   });
@@ -48,10 +48,12 @@ videoStreamManager.on('stream-ended', () => {
 videoStreamManager.on('stream-started', () => {
   console.log('Video stream started');
   isStreamActive = true;
+  const resolution = videoStreamManager.currentResolution;
+  const model = resolution?.source === 'hdmi' ? 'HDMI Capture (1080p)' : 'Canon EOS M50';
   io.emit('camera-status', { 
     connected: true, 
-    model: 'Canon EOS M50',
-    message: 'Camera connected with live preview',
+    model: model,
+    message: `${model} connected with live preview`,
     streamActive: true
   });
 });
@@ -155,6 +157,28 @@ io.on('connection', (socket) => {
       captureState.isCapturing = false;
       captureState.prepared = false;
       captureState.error = error;
+    }
+  });
+
+  socket.on('try-full-resolution', async () => {
+    try {
+      console.log('Attempting full resolution capture...');
+      const fullResPath = await videoStreamManager.captureFullResolutionPhoto();
+      
+      if (fullResPath) {
+        socket.emit('full-resolution-success', { path: fullResPath });
+      } else {
+        socket.emit('full-resolution-unavailable', { 
+          message: 'Camera in movie mode - full resolution capture not available',
+          suggestion: 'Use HDMI capture for higher resolution'
+        });
+      }
+    } catch (error) {
+      console.error('Full resolution capture error:', error);
+      socket.emit('full-resolution-unavailable', { 
+        message: 'Full resolution capture failed',
+        error: error.message
+      });
     }
   });
 
