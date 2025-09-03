@@ -51,10 +51,16 @@ class VideoStreamManager extends EventEmitter {
   
   async checkFFmpegAvailable() {
     try {
-      await this.executeCommand('ffmpeg -version');
+      await this.executeCommand('which ffmpeg');
       return true;
     } catch (error) {
-      return false;
+      // Try checking with 'command -v' as alternative
+      try {
+        await this.executeCommand('command -v ffmpeg');
+        return true;
+      } catch (err) {
+        return false;
+      }
     }
   }
 
@@ -86,15 +92,16 @@ class VideoStreamManager extends EventEmitter {
     console.log('Starting HDMI capture stream at 1920x1080...');
     
     try {
-      // Create the ffmpeg process for HDMI capture
+      // Create the ffmpeg process for HDMI capture - WORKING configuration
+      // Key fix: Use "0:none" to specify video-only capture (no audio)
       const ffmpegProcess = spawn('ffmpeg', [
         '-hide_banner',
         '-f', 'avfoundation',
-        '-pixel_format', 'uyvy422',
-        '-video_size', '1920x1080',
-        '-framerate', '60',  // Use 60fps as supported by the device
-        '-i', this.usbVideoIndex || '0',  // USB Video device index
-        '-f', 'mjpeg',
+        '-framerate', '30',
+        '-i', `${this.usbVideoIndex || '0'}:none`,  // Video device with :none for no audio
+        '-vf', 'fps=15',  // Reduce to 15 fps for smoother streaming
+        '-f', 'image2pipe',  // Use image2pipe for proper JPEG boundaries
+        '-vcodec', 'mjpeg',
         '-q:v', '2',  // High quality
         'pipe:1'
       ]);
@@ -119,57 +126,95 @@ class VideoStreamManager extends EventEmitter {
       // Handle ffmpeg output (1080p frames)
       let buffer = Buffer.alloc(0);
       let lastFrameTime = 0;
-      const frameInterval = 50; // 20 FPS for preview (reduces bandwidth)
+      const frameInterval = 67; // 15 FPS for preview
+      let blackFrameCount = 0;
+      let checkedFrames = 0;
       
       ffmpegProcess.stdout.on('data', (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
         
-        // Look for JPEG markers
-        const startMarker = buffer.indexOf(Buffer.from([0xFF, 0xD8]));
-        const endMarker = buffer.indexOf(Buffer.from([0xFF, 0xD9]));
-        
-        if (startMarker !== -1 && endMarker !== -1 && endMarker > startMarker) {
+        // Process all complete JPEG frames in the buffer
+        while (buffer.length > 0) {
+          // Look for JPEG start marker
+          const startMarker = buffer.indexOf(Buffer.from([0xFF, 0xD8]));
+          
+          if (startMarker === -1) {
+            // No start marker found, keep last 2 bytes for next chunk
+            buffer = buffer.slice(Math.max(0, buffer.length - 2));
+            break;
+          }
+          
+          // If start marker is not at beginning, discard preceding data
+          if (startMarker > 0) {
+            buffer = buffer.slice(startMarker);
+          }
+          
+          // Look for JPEG end marker
+          const endMarker = buffer.indexOf(Buffer.from([0xFF, 0xD9]), 2);
+          
+          if (endMarker === -1) {
+            // No end marker yet, wait for more data
+            break;
+          }
+          
           // Extract complete JPEG frame
-          const frame = buffer.slice(startMarker, endMarker + 2);
+          const frame = buffer.slice(0, endMarker + 2);
           
-          // Store frame for high-resolution capture
-          this.lastHighQualityFrame = frame;
-          this.frameCounter++;
-          
-          // Log resolution periodically
-          if (this.frameCounter % 90 === 0) {
-            sharp(frame).metadata().then(metadata => {
-              console.log(`HDMI capture resolution: ${metadata.width}x${metadata.height}`);
-            }).catch(() => {});
-          }
-          
-          // Throttle frame emission for preview
-          const now = Date.now();
-          if (now - lastFrameTime >= frameInterval) {
-            // Create preview version (lower resolution for UI performance)
-            sharp(frame)
-              .resize(960, 540, { fit: 'inside' })  // Half resolution for preview
-              .jpeg({ quality: 70 })
-              .toBuffer()
-              .then(resizedFrame => {
-                this.emit('frame', {
-                  data: resizedFrame.toString('base64'),
-                  mimeType: 'image/jpeg',
-                  timestamp: now
-                });
-              })
-              .catch(err => console.log('Frame resize error:', err.message));
+          // Validate frame size (avoid tiny corrupt frames) - need substantial frames for 1080p
+          if (frame.length > 20000) {
+            // Check for black frames in the first 10 frames
+            if (checkedFrames < 10) {
+              checkedFrames++;
+              this.checkForBlackFrame(frame).then(isBlack => {
+                if (isBlack) {
+                  blackFrameCount++;
+                  console.log(`Black frame detected (${blackFrameCount}/10)`);
+                  
+                  // If most frames are black, restart with different settings
+                  if (blackFrameCount >= 7 && checkedFrames >= 10) {
+                    console.log('Too many black frames, trying alternative capture settings...');
+                    ffmpegProcess.kill('SIGTERM');
+                    this.startHDMICaptureWithAlternativeSettings();
+                    return;
+                  }
+                }
+              }).catch(() => {});
+            }
             
-            lastFrameTime = now;
+            // Store frame for high-resolution capture
+            this.lastHighQualityFrame = frame;
+            this.frameCounter++;
+            
+            // Log resolution periodically
+            if (this.frameCounter % 150 === 0) {
+              sharp(frame).metadata().then(metadata => {
+                console.log(`HDMI capture resolution: ${metadata.width}x${metadata.height}`);
+              }).catch(() => {});
+            }
+            
+            // Throttle frame emission for preview
+            const now = Date.now();
+            if (now - lastFrameTime >= frameInterval) {
+              // Create preview version (lower resolution for UI performance)
+              sharp(frame)
+                .resize(960, 540, { fit: 'inside' })  // Half resolution for preview
+                .jpeg({ quality: 70 })
+                .toBuffer()
+                .then(resizedFrame => {
+                  this.emit('frame', {
+                    data: resizedFrame.toString('base64'),
+                    mimeType: 'image/jpeg',
+                    timestamp: now
+                  });
+                })
+                .catch(err => console.log('Frame resize error:', err.message));
+              
+              lastFrameTime = now;
+            }
           }
           
-          // Keep remaining data in buffer
+          // Move buffer forward past this frame
           buffer = buffer.slice(endMarker + 2);
-        }
-        
-        // Prevent buffer from growing too large
-        if (buffer.length > 8 * 1024 * 1024) { // 8MB buffer for 1080p frames
-          buffer = Buffer.alloc(0);
         }
       });
       
@@ -769,6 +814,135 @@ class VideoStreamManager extends EventEmitter {
     return pipelineProcess;
   }
 
+  async checkForBlackFrame(frameBuffer) {
+    try {
+      // Get image statistics
+      const stats = await sharp(frameBuffer).stats();
+      
+      // Check if all channels have very low mean values (indicating a black frame)
+      const meanBrightness = (stats.channels[0].mean + stats.channels[1].mean + stats.channels[2].mean) / 3;
+      
+      // If mean brightness is less than 10 (out of 255), consider it black
+      return meanBrightness < 10;
+    } catch (error) {
+      return false;
+    }
+  }
+  
+  async startHDMICaptureWithAlternativeSettings() {
+    console.log('Trying alternative HDMI capture settings...');
+    
+    try {
+      // Wait a bit before retrying
+      await this.sleep(1000);
+      
+      // Alternative settings with explicit parameters
+      const ffmpegProcess = spawn('ffmpeg', [
+        '-hide_banner',
+        '-f', 'avfoundation',
+        '-video_size', '1920x1080',
+        '-framerate', '30',
+        '-i', `${this.usbVideoIndex || '0'}:none`,  // Use :none for no audio
+        '-vf', 'fps=15,format=yuv420p',  // Reduce fps and ensure standard format
+        '-f', 'image2pipe',
+        '-vcodec', 'mjpeg',
+        '-q:v', '2',
+        'pipe:1'
+      ]);
+      
+      // Store the process
+      this.ffmpegProcess = ffmpegProcess;
+      
+      // Handle the output similar to the main capture
+      let buffer = Buffer.alloc(0);
+      let lastFrameTime = 0;
+      const frameInterval = 67;
+      
+      ffmpegProcess.stdout.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        
+        // Process frames
+        let processedBytes = 0;
+        
+        while (true) {
+          const searchBuffer = buffer.slice(processedBytes);
+          const startMarker = searchBuffer.indexOf(Buffer.from([0xFF, 0xD8]));
+          
+          if (startMarker === -1) break;
+          
+          const endMarker = searchBuffer.indexOf(Buffer.from([0xFF, 0xD9]), startMarker);
+          
+          if (endMarker === -1) break;
+          
+          const frameStart = processedBytes + startMarker;
+          const frameEnd = processedBytes + endMarker + 2;
+          const frame = buffer.slice(frameStart, frameEnd);
+          
+          if (frame.length > 20000) {
+            this.lastHighQualityFrame = frame;
+            this.frameCounter++;
+            
+            const now = Date.now();
+            if (now - lastFrameTime >= frameInterval) {
+              sharp(frame)
+                .resize(960, 540, { fit: 'inside' })
+                .jpeg({ quality: 70 })
+                .toBuffer()
+                .then(resizedFrame => {
+                  this.emit('frame', {
+                    data: resizedFrame.toString('base64'),
+                    mimeType: 'image/jpeg',
+                    timestamp: now
+                  });
+                })
+                .catch(err => console.log('Frame resize error:', err.message));
+              
+              lastFrameTime = now;
+            }
+          }
+          
+          processedBytes = frameEnd;
+        }
+        
+        if (processedBytes > 0) {
+          buffer = buffer.slice(processedBytes);
+        }
+        
+        if (buffer.length > 4 * 1024 * 1024) {
+          buffer = Buffer.alloc(0);
+        }
+      });
+      
+      ffmpegProcess.stderr.on('data', (data) => {
+        const message = data.toString();
+        // Only log important errors, not regular status messages
+        if (message.includes('error') || message.includes('failed')) {
+          console.log('Alternative capture stderr:', message);
+        }
+      });
+      
+      ffmpegProcess.on('close', (code) => {
+        console.log(`Alternative capture process ended with code:`, code);
+        const wasStreaming = this.isStreaming;
+        this.isStreaming = false;
+        
+        if (wasStreaming) {
+          this.emit('stream-ended', { code });
+        }
+      });
+      
+      ffmpegProcess.on('error', (error) => {
+        console.error('Alternative capture error:', error.message);
+        console.log('Falling back to gphoto2...');
+        this.startGPhoto2Fallback();
+      });
+      
+    } catch (error) {
+      console.error('Failed to start alternative capture:', error);
+      this.startGPhoto2Fallback();
+    }
+  }
+
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
@@ -785,15 +959,25 @@ class VideoStreamManager extends EventEmitter {
             return;
           }
           
+          // For ffmpeg/which commands, resolve even with error if we have output
+          if (command.includes('which ffmpeg') || command.includes('command -v ffmpeg')) {
+            if (stdout && stdout.trim()) {
+              resolve(stdout);
+            } else {
+              reject(error);
+            }
+            return;
+          }
+          
           // Only log warnings for configuration commands, reject for critical commands
-          if (command.includes('ffmpeg -version') || command.includes('ls /dev/video') || command.includes('capture-image-and-download')) {
+          if (command.includes('ls /dev/video') || command.includes('capture-image-and-download')) {
             reject(error);
           } else {
             console.log(`Command warning: ${command} - ${error.message}`);
             resolve(stdout);
           }
         } else {
-          resolve(stdout);
+          resolve(stdout || stderr); // Return stdout or stderr if stdout is empty
         }
       });
     });
