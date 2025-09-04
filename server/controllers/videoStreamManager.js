@@ -89,32 +89,10 @@ class VideoStreamManager extends EventEmitter {
   }
 
   async startHDMICaptureStream() {
-    console.log('Starting HDMI capture stream at 1920x1080...');
+    console.log('Starting HDMI capture (OBS-style continuous stream)...');
     
     try {
-      // Create the ffmpeg process for HDMI capture - WORKING configuration
-      // Key fix: Use "0:none" to specify video-only capture (no audio)
-      const ffmpegProcess = spawn('ffmpeg', [
-        '-hide_banner',
-        '-f', 'avfoundation',
-        '-framerate', '30',
-        '-i', `${this.usbVideoIndex || '0'}:none`,  // Video device with :none for no audio
-        '-vf', 'fps=15',  // Reduce to 15 fps for smoother streaming
-        '-f', 'image2pipe',  // Use image2pipe for proper JPEG boundaries
-        '-vcodec', 'mjpeg',
-        '-q:v', '2',  // High quality
-        'pipe:1'
-      ]);
-      
-      // Handle ffmpeg spawn errors
-      ffmpegProcess.on('error', (error) => {
-        console.error('HDMI capture ffmpeg process error:', error.message);
-        console.log('Falling back to gphoto2...');
-        this.startGPhoto2Fallback();
-        return;
-      });
-      
-      this.ffmpegProcess = ffmpegProcess;
+      this.isStreaming = true;
       this.currentResolution = { 
         configured: true, 
         resolution: '1920x1080',
@@ -123,109 +101,101 @@ class VideoStreamManager extends EventEmitter {
         source: 'hdmi'
       };
       
-      // Handle ffmpeg output (1080p frames)
+      // Create continuous ffmpeg process like OBS does - MAXIMUM SMOOTHNESS
+      const ffmpegProcess = spawn('ffmpeg', [
+        '-hide_banner',
+        '-f', 'avfoundation',
+        '-framerate', '30.000030',  // Full 30fps input
+        '-video_size', '1920x1080',
+        '-pixel_format', 'uyvy422',
+        '-i', `${this.usbVideoIndex || '0'}:none`,
+        // Maximum smoothness: 25fps output with optimized scaling
+        '-vf', 'scale=640:360:flags=fast_bilinear,fps=25',  // 25fps for smoothness
+        '-f', 'image2pipe',
+        '-vcodec', 'mjpeg',
+        '-q:v', '5',  // Slightly higher quality
+        '-threads', '6',  // More threads for processing
+        '-preset', 'ultrafast',  // Fastest encoding
+        'pipe:1'
+      ]);
+      
+      this.ffmpegProcess = ffmpegProcess;
+      
+      // Process the continuous stream - OPTIMIZED FOR 25FPS
       let buffer = Buffer.alloc(0);
       let lastFrameTime = 0;
-      const frameInterval = 67; // 15 FPS for preview
-      let blackFrameCount = 0;
-      let checkedFrames = 0;
+      const frameInterval = 40; // 25fps (1000ms/25)
+      let frameCount = 0;
+      let droppedFrames = 0;
       
       ffmpegProcess.stdout.on('data', (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
         
-        // Process all complete JPEG frames in the buffer
+        // Process complete JPEG frames
         while (buffer.length > 0) {
-          // Look for JPEG start marker
           const startMarker = buffer.indexOf(Buffer.from([0xFF, 0xD8]));
           
           if (startMarker === -1) {
-            // No start marker found, keep last 2 bytes for next chunk
             buffer = buffer.slice(Math.max(0, buffer.length - 2));
             break;
           }
           
-          // If start marker is not at beginning, discard preceding data
           if (startMarker > 0) {
             buffer = buffer.slice(startMarker);
           }
           
-          // Look for JPEG end marker
           const endMarker = buffer.indexOf(Buffer.from([0xFF, 0xD9]), 2);
           
           if (endMarker === -1) {
-            // No end marker yet, wait for more data
             break;
           }
           
-          // Extract complete JPEG frame
           const frame = buffer.slice(0, endMarker + 2);
           
-          // Validate frame size (avoid tiny corrupt frames) - need substantial frames for 1080p
-          if (frame.length > 20000) {
-            // Check for black frames in the first 10 frames
-            if (checkedFrames < 10) {
-              checkedFrames++;
-              this.checkForBlackFrame(frame).then(isBlack => {
-                if (isBlack) {
-                  blackFrameCount++;
-                  console.log(`Black frame detected (${blackFrameCount}/10)`);
-                  
-                  // If most frames are black, restart with different settings
-                  if (blackFrameCount >= 7 && checkedFrames >= 10) {
-                    console.log('Too many black frames, trying alternative capture settings...');
-                    ffmpegProcess.kill('SIGTERM');
-                    this.startHDMICaptureWithAlternativeSettings();
-                    return;
-                  }
-                }
-              }).catch(() => {});
-            }
-            
-            // Store frame for high-resolution capture
+          if (frame.length > 5000) { // Valid frame size
             this.lastHighQualityFrame = frame;
-            this.frameCounter++;
+            frameCount++;
             
-            // Log resolution periodically
-            if (this.frameCounter % 150 === 0) {
-              sharp(frame).metadata().then(metadata => {
-                console.log(`HDMI capture resolution: ${metadata.width}x${metadata.height}`);
-              }).catch(() => {});
-            }
-            
-            // Throttle frame emission for preview
+            // Emit frames at high rate for smoothness
             const now = Date.now();
             if (now - lastFrameTime >= frameInterval) {
-              // Create preview version (lower resolution for UI performance)
-              sharp(frame)
-                .resize(960, 540, { fit: 'inside' })  // Half resolution for preview
-                .jpeg({ quality: 70 })
-                .toBuffer()
-                .then(resizedFrame => {
-                  this.emit('frame', {
-                    data: resizedFrame.toString('base64'),
-                    mimeType: 'image/jpeg',
-                    timestamp: now
-                  });
-                })
-                .catch(err => console.log('Frame resize error:', err.message));
+              this.emit('frame', {
+                data: frame.toString('base64'),
+                mimeType: 'image/jpeg',
+                timestamp: now
+              });
               
               lastFrameTime = now;
+              
+              // Enhanced performance logging
+              if (frameCount % 250 === 0) {
+                const fps = frameCount / ((now - (lastFrameTime - frameInterval)) / 1000);
+                console.log(`HDMI stream: ${frameCount} frames processed, ~${fps.toFixed(1)} fps, dropped: ${droppedFrames}`);
+              }
+            } else {
+              droppedFrames++;
             }
           }
           
-          // Move buffer forward past this frame
           buffer = buffer.slice(endMarker + 2);
+        }
+        
+        // Prevent buffer overflow
+        if (buffer.length > 2 * 1024 * 1024) {
+          buffer = Buffer.alloc(0);
         }
       });
       
-      // Error handling
       ffmpegProcess.stderr.on('data', (data) => {
-        console.log('HDMI capture stderr:', data.toString());
+        const stderr = data.toString();
+        // Only log important messages, not status spam
+        if (stderr.includes('error') || stderr.includes('failed')) {
+          console.log('HDMI capture:', stderr);
+        }
       });
       
-      // Process termination handling
       ffmpegProcess.on('close', (code) => {
-        console.log(`HDMI capture process ended with code:`, code);
+        console.log(`HDMI capture ended with code: ${code}`);
         const wasStreaming = this.isStreaming;
         this.isStreaming = false;
         
@@ -234,13 +204,18 @@ class VideoStreamManager extends EventEmitter {
         }
       });
       
-      // Emit stream-started after process is running
+      ffmpegProcess.on('error', (error) => {
+        console.error('HDMI capture error:', error.message);
+        this.startGPhoto2Fallback();
+      });
+      
+      // Emit stream-started after process is stable
       setTimeout(() => {
         if (this.isStreaming && this.ffmpegProcess) {
-          console.log('HDMI capture stream started successfully at 1920x1080');
+          console.log('HDMI continuous stream started at 1920x1080');
           this.emit('stream-started');
         }
-      }, 2000);
+      }, 1000);
       
     } catch (error) {
       console.error('Error in HDMI capture stream:', error);
@@ -630,24 +605,54 @@ class VideoStreamManager extends EventEmitter {
     const filepath = path.join(this.captureDir, filename);
     
     try {
-      // Check if we have a high-quality frame from HDMI capture
-      if (this.lastHighQualityFrame && this.currentResolution?.source === 'hdmi') {
-        console.log('📸 Capturing 1080p frame from HDMI stream...');
+      // For HDMI capture: Grab a fresh 1080p frame directly
+      if (this.currentResolution?.source === 'hdmi') {
+        console.log('📸 Capturing fresh 1080p frame from HDMI...');
         
-        const metadata = await sharp(this.lastHighQualityFrame).metadata();
-        console.log(`✅ HDMI capture source: ${metadata.width}x${metadata.height}`);
+        // Create a one-shot capture process for full resolution
+        const captureProcess = spawn('ffmpeg', [
+          '-hide_banner',
+          '-f', 'avfoundation',
+          '-framerate', '30.000030',  // Use exact supported framerate
+          '-video_size', '1920x1080',  // Full HD resolution
+          '-pixel_format', 'uyvy422',  // Use supported pixel format
+          '-i', `${this.usbVideoIndex || '0'}:none`,
+          '-frames:v', '1',  // Capture just one frame
+          '-f', 'image2pipe',
+          '-vcodec', 'mjpeg',
+          '-q:v', '1',  // Maximum quality
+          'pipe:1'
+        ]);
         
-        // Save the full 1080p frame with high quality
-        await sharp(this.lastHighQualityFrame)
-          .jpeg({ 
-            quality: 95,
-            progressive: true,
-            mozjpeg: true
-          })
-          .toFile(filepath);
-        
-        console.log(`✅ 1080p photo saved: ${filepath}`);
-        return filepath;
+        return new Promise((resolve, reject) => {
+          let frameBuffer = Buffer.alloc(0);
+          
+          captureProcess.stdout.on('data', (chunk) => {
+            frameBuffer = Buffer.concat([frameBuffer, chunk]);
+          });
+          
+          captureProcess.on('close', async (code) => {
+            if (code === 0 && frameBuffer.length > 0) {
+              const metadata = await sharp(frameBuffer).metadata();
+              console.log(`✅ Captured at: ${metadata.width}x${metadata.height}`);
+              
+              await sharp(frameBuffer)
+                .jpeg({ 
+                  quality: 95,
+                  progressive: true,
+                  mozjpeg: true
+                })
+                .toFile(filepath);
+              
+              console.log(`✅ 1080p photo saved: ${filepath}`);
+              resolve(filepath);
+            } else {
+              reject(new Error('Failed to capture frame'));
+            }
+          });
+          
+          captureProcess.on('error', reject);
+        });
       }
       
       // For gphoto2 sources, try full resolution capture
@@ -836,17 +841,19 @@ class VideoStreamManager extends EventEmitter {
       // Wait a bit before retrying
       await this.sleep(1000);
       
-      // Alternative settings with explicit parameters
+      // Alternative settings - use 480p input if 640x480 fails
       const ffmpegProcess = spawn('ffmpeg', [
         '-hide_banner',
         '-f', 'avfoundation',
-        '-video_size', '1920x1080',
-        '-framerate', '30',
+        '-framerate', '10.000000',  // Lower framerate
+        '-video_size', '720x480',  // 480p input
+        '-pixel_format', 'uyvy422',  // Use supported pixel format
         '-i', `${this.usbVideoIndex || '0'}:none`,  // Use :none for no audio
-        '-vf', 'fps=15,format=yuv420p',  // Reduce fps and ensure standard format
+        // Ultra minimal preview
+        '-vf', 'scale=240:135:flags=neighbor,fps=3',
         '-f', 'image2pipe',
         '-vcodec', 'mjpeg',
-        '-q:v', '2',
+        '-q:v', '10',
         'pipe:1'
       ]);
       
