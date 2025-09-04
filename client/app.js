@@ -101,6 +101,7 @@ class PhotoboothApp {
         const connectBtn = document.getElementById('connect-btn');
         const captureBtn = document.getElementById('capture-btn');
         const settingsBtn = document.getElementById('settings-toggle');
+        const fullscreenBtn = document.getElementById('fullscreen-toggle');
         const modalClose = document.getElementById('modal-close');
         const settingsModal = document.getElementById('settings-modal');
         const errorClose = document.getElementById('error-close');
@@ -115,6 +116,8 @@ class PhotoboothApp {
             settingsModal.classList.add('active');
         });
 
+        fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+
         modalClose.addEventListener('click', () => {
             settingsModal.classList.remove('active');
         });
@@ -123,6 +126,12 @@ class PhotoboothApp {
         errorClose.addEventListener('click', () => {
             this.hideErrorToast();
         });
+
+        // Listen for fullscreen changes (F11, Escape, etc.)
+        document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+        document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
+        document.addEventListener('mozfullscreenchange', () => this.updateFullscreenButton());
+        document.addEventListener('msfullscreenchange', () => this.updateFullscreenButton());
 
         // Photo detail modal handlers
         photoModalClose.addEventListener('click', () => {
@@ -478,6 +487,55 @@ class PhotoboothApp {
         if (this.captureTimeout) {
             clearTimeout(this.captureTimeout);
             this.captureTimeout = null;
+        }
+    }
+
+    toggleFullscreen() {
+        // Check if already in browser fullscreen
+        const isFullscreen = document.fullscreenElement || 
+                             document.webkitFullscreenElement || 
+                             document.mozFullScreenElement;
+        
+        if (isFullscreen) {
+            // Exit browser fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        } else {
+            // Enter browser fullscreen
+            const elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            }
+        }
+    }
+
+    updateFullscreenButton() {
+        const fullscreenBtn = document.getElementById('fullscreen-toggle');
+        const isFullscreen = document.fullscreenElement || 
+                             document.webkitFullscreenElement || 
+                             document.mozFullScreenElement;
+        
+        const svg = fullscreenBtn.querySelector('svg path');
+        
+        if (isFullscreen) {
+            // Exit fullscreen icon (compress arrows)
+            svg.setAttribute('d', 'M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z');
+        } else {
+            // Enter fullscreen icon (expand arrows)  
+            svg.setAttribute('d', 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z');
         }
     }
 

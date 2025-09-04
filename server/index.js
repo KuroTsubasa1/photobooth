@@ -5,6 +5,21 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
+// Parse command line arguments
+const args = process.argv.slice(2);
+const isQuiet = args.includes('--quiet') || args.includes('--headless') || args.includes('-q');
+const isVerbose = args.includes('--verbose') || args.includes('-v');
+
+// Conditional logging utility
+const logger = {
+  log: isQuiet ? () => {} : console.log,
+  info: isQuiet ? () => {} : console.log,
+  warn: console.warn, // Always show warnings
+  error: console.error, // Always show errors
+  debug: isVerbose ? console.log : () => {},
+  performance: isQuiet ? () => {} : console.log
+};
+
 const cameraController = require('./controllers/cameraController');
 const printerController = require('./controllers/printerController');
 const videoStreamManager = require('./controllers/videoStreamManager');
@@ -34,7 +49,7 @@ videoStreamManager.on('frame', (frame) => {
 
 // Handle stream ending unexpectedly
 videoStreamManager.on('stream-ended', () => {
-  console.log('Video stream ended unexpectedly');
+  logger.warn('Video stream ended unexpectedly');
   isStreamActive = false;
   io.emit('camera-status', { 
     connected: false, 
@@ -46,7 +61,7 @@ videoStreamManager.on('stream-ended', () => {
 
 // Handle stream starting
 videoStreamManager.on('stream-started', () => {
-  console.log('Video stream started');
+  logger.info('Video stream started');
   isStreamActive = true;
   const resolution = videoStreamManager.currentResolution;
   const model = resolution?.source === 'hdmi' ? 'HDMI Capture (1080p)' : 'Canon EOS M50';
@@ -59,7 +74,7 @@ videoStreamManager.on('stream-started', () => {
 });
 
 io.on('connection', (socket) => {
-  console.log('iPad client connected');
+  logger.info('iPad client connected');
   
   // Send current camera status based on actual stream state
   socket.emit('camera-status', { 
@@ -73,7 +88,7 @@ io.on('connection', (socket) => {
 
   socket.on('connect-camera', async () => {
     if (!isStreamActive) {
-      console.log('Starting camera stream...');
+      logger.info('Starting camera stream...');
       await videoStreamManager.startStream();
       // Status update will be sent via stream-started event
     }
@@ -81,7 +96,7 @@ io.on('connection', (socket) => {
   
   socket.on('disconnect-camera', async () => {
     if (isStreamActive) {
-      console.log('Stopping camera stream...');
+      logger.info('Stopping camera stream...');
       await videoStreamManager.stopStream();
       // Status will be updated via stream-ended event
     }
@@ -106,7 +121,7 @@ io.on('connection', (socket) => {
         return;
       }
       
-      console.log('Preparing for stream capture...');
+      logger.debug('Preparing for stream capture...');
       captureState.isCapturing = false; // Reset any previous state
       captureState.prepared = false;
       captureState.error = null;
@@ -114,7 +129,7 @@ io.on('connection', (socket) => {
       // No need to stop stream - we're capturing from it!
       // Just mark as ready immediately
       captureState.prepared = true;
-      console.log('Stream capture ready');
+      logger.debug('Stream capture ready');
       
     } catch (error) {
       console.error('Capture preparation error:', error);
@@ -133,7 +148,7 @@ io.on('connection', (socket) => {
       // Mark as currently capturing
       captureState.isCapturing = true;
       
-      console.log('Capturing frame from stream...');
+      logger.debug('Capturing frame from stream...');
       socket.emit('capture-started');
       
       // Capture directly from the video stream - instant!
@@ -196,7 +211,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('iPad client disconnected');
+    logger.info('iPad client disconnected');
   });
 });
 
@@ -219,17 +234,22 @@ app.get('/printer/status', async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Photobooth server running on port ${PORT}`);
-  console.log(`Local access: http://localhost:${PORT}`);
-  console.log(`iPad access: http://192.168.178.35:${PORT}`);
+  if (!isQuiet) {
+    logger.log(`🎪 Photobooth Server ${isQuiet ? '(Headless Mode)' : ''}`);
+    logger.log(`📡 Running on port ${PORT}`);
+    logger.log(`🏠 Local: http://localhost:${PORT}`);
+    logger.log(`📱 iPad: http://192.168.178.35:${PORT}`);
+    logger.log(`🎬 30fps video streaming optimized`);
+    logger.log(`\n🚀 Ready for photos!\n`);
+  }
 });
 
 // Graceful shutdown handlers
 const gracefulShutdown = () => {
-  console.log('\nShutting down gracefully...');
+  logger.log('\nShutting down gracefully...');
   
   server.close(() => {
-    console.log('HTTP server closed');
+    logger.log('HTTP server closed');
     process.exit(0);
   });
 

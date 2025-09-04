@@ -1,13 +1,11 @@
 #!/bin/bash
 
-# Kill any existing process on the port
-PORT=$(grep PORT .env | cut -d'=' -f2)
-if [ -z "$PORT" ]; then
-    PORT=3000
-fi
+# Photobooth Regular Mode
+# Normal startup with standard console output
 
-echo "Checking for existing processes on port $PORT..."
-lsof -ti:$PORT | xargs kill -9 2>/dev/null
+echo "📸 Starting Photobooth..."
+echo "🎥 30fps HDMI capture ready"
+echo "📱 iPad optimized interface"
+echo ""
 
-echo "Starting photobooth server on port $PORT..."
-npm start
+node server/index.js

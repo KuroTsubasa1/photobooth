@@ -4,6 +4,17 @@ const path = require('path');
 const EventEmitter = require('events');
 const sharp = require('sharp');
 
+// Get quiet mode from command line args (for performance)
+const isQuiet = process.argv.includes('--quiet') || process.argv.includes('--headless') || process.argv.includes('-q');
+const logger = {
+  log: isQuiet ? () => {} : console.log,
+  info: isQuiet ? () => {} : console.log,
+  warn: console.warn,
+  error: console.error,
+  debug: isQuiet ? () => {} : console.log,
+  performance: isQuiet ? () => {} : console.log
+};
+
 class VideoStreamManager extends EventEmitter {
   constructor() {
     super();
@@ -18,7 +29,7 @@ class VideoStreamManager extends EventEmitter {
   async startStream() {
     if (this.isStreaming) return;
     
-    console.log('Starting 1080p video stream from HDMI capture card...');
+    logger.info('Starting 1080p video stream from HDMI capture card...');
     this.isStreaming = true;
     
     try {
@@ -89,7 +100,7 @@ class VideoStreamManager extends EventEmitter {
   }
 
   async startHDMICaptureStream() {
-    console.log('Starting HDMI capture (OBS-style continuous stream)...');
+    logger.info('Starting HDMI capture (OBS-style continuous stream)...');
     
     try {
       this.isStreaming = true;
@@ -101,7 +112,7 @@ class VideoStreamManager extends EventEmitter {
         source: 'hdmi'
       };
       
-      // Create continuous ffmpeg process like OBS does - MAXIMUM SMOOTHNESS
+      // Create continuous ffmpeg process - OPTIMIZED & STABLE 30fps
       const ffmpegProcess = spawn('ffmpeg', [
         '-hide_banner',
         '-f', 'avfoundation',
@@ -109,24 +120,24 @@ class VideoStreamManager extends EventEmitter {
         '-video_size', '1920x1080',
         '-pixel_format', 'uyvy422',
         '-i', `${this.usbVideoIndex || '0'}:none`,
-        // Maximum smoothness: 25fps output with optimized scaling
-        '-vf', 'scale=640:360:flags=fast_bilinear,fps=25',  // 25fps for smoothness
+        // Stable 30fps output with fast processing
+        '-vf', 'scale=640:360:flags=fast_bilinear,fps=30',  // 30fps with compatible scaling
         '-f', 'image2pipe',
         '-vcodec', 'mjpeg',
-        '-q:v', '5',  // Slightly higher quality
-        '-threads', '6',  // More threads for processing
-        '-preset', 'ultrafast',  // Fastest encoding
+        '-q:v', '5',  // Good quality for speed
+        '-threads', '6',  // Optimal thread count
         'pipe:1'
       ]);
       
       this.ffmpegProcess = ffmpegProcess;
       
-      // Process the continuous stream - OPTIMIZED FOR 25FPS
+      // Process the continuous stream - OPTIMIZED FOR 30FPS MAX SPEED
       let buffer = Buffer.alloc(0);
       let lastFrameTime = 0;
-      const frameInterval = 40; // 25fps (1000ms/25)
+      const frameInterval = 33; // 30fps (1000ms/30)
       let frameCount = 0;
       let droppedFrames = 0;
+      const startTime = Date.now();
       
       ffmpegProcess.stdout.on('data', (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
@@ -152,36 +163,33 @@ class VideoStreamManager extends EventEmitter {
           
           const frame = buffer.slice(0, endMarker + 2);
           
-          if (frame.length > 5000) { // Valid frame size
+          if (frame.length > 3000) { // Lower threshold for faster processing
             this.lastHighQualityFrame = frame;
             frameCount++;
             
-            // Emit frames at high rate for smoothness
+            // MAXIMUM SPEED: Emit every valid frame without strict timing
             const now = Date.now();
-            if (now - lastFrameTime >= frameInterval) {
-              this.emit('frame', {
-                data: frame.toString('base64'),
-                mimeType: 'image/jpeg',
-                timestamp: now
-              });
-              
-              lastFrameTime = now;
-              
-              // Enhanced performance logging
-              if (frameCount % 250 === 0) {
-                const fps = frameCount / ((now - (lastFrameTime - frameInterval)) / 1000);
-                console.log(`HDMI stream: ${frameCount} frames processed, ~${fps.toFixed(1)} fps, dropped: ${droppedFrames}`);
-              }
-            } else {
-              droppedFrames++;
+            this.emit('frame', {
+              data: frame.toString('base64'),
+              mimeType: 'image/jpeg',
+              timestamp: now
+            });
+            
+            lastFrameTime = now;
+            
+            // Real-time performance monitoring
+            if (frameCount % 300 === 0) {
+              const elapsed = (now - startTime) / 1000;
+              const actualFps = frameCount / elapsed;
+              logger.performance(`🚀 HDMI MAX SPEED: ${frameCount} frames, ${actualFps.toFixed(1)} fps actual, target: 30fps`);
             }
           }
           
           buffer = buffer.slice(endMarker + 2);
         }
         
-        // Prevent buffer overflow
-        if (buffer.length > 2 * 1024 * 1024) {
+        // Aggressive buffer management for minimal latency
+        if (buffer.length > 512 * 1024) { // 512KB max buffer (was 2MB)
           buffer = Buffer.alloc(0);
         }
       });
@@ -195,7 +203,7 @@ class VideoStreamManager extends EventEmitter {
       });
       
       ffmpegProcess.on('close', (code) => {
-        console.log(`HDMI capture ended with code: ${code}`);
+        logger.warn(`HDMI capture ended with code: ${code}`);
         const wasStreaming = this.isStreaming;
         this.isStreaming = false;
         
@@ -205,14 +213,14 @@ class VideoStreamManager extends EventEmitter {
       });
       
       ffmpegProcess.on('error', (error) => {
-        console.error('HDMI capture error:', error.message);
+        logger.error('HDMI capture error:', error.message);
         this.startGPhoto2Fallback();
       });
       
       // Emit stream-started after process is stable
       setTimeout(() => {
         if (this.isStreaming && this.ffmpegProcess) {
-          console.log('HDMI continuous stream started at 1920x1080');
+          logger.info('HDMI continuous stream started at 1920x1080');
           this.emit('stream-started');
         }
       }, 1000);
