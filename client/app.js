@@ -95,6 +95,16 @@ class PhotoboothApp {
                 }
             }, 5000);
         });
+
+        this.socket.on('fullscreen-toggled', () => {
+            // Handle fullscreen toggle from server
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                document.documentElement.requestFullscreen();
+            }
+            this.updateFullscreenButton();
+        });
     }
 
     setupEventListeners() {
@@ -491,34 +501,9 @@ class PhotoboothApp {
     }
 
     toggleFullscreen() {
-        // Check if already in browser fullscreen
-        const isFullscreen = document.fullscreenElement || 
-                             document.webkitFullscreenElement || 
-                             document.mozFullScreenElement;
-        
-        if (isFullscreen) {
-            // Exit browser fullscreen
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            } else if (document.mozCancelFullScreen) {
-                document.mozCancelFullScreen();
-            } else if (document.msExitFullscreen) {
-                document.msExitFullscreen();
-            }
-        } else {
-            // Enter browser fullscreen
-            const elem = document.documentElement;
-            if (elem.requestFullscreen) {
-                elem.requestFullscreen();
-            } else if (elem.webkitRequestFullscreen) {
-                elem.webkitRequestFullscreen();
-            } else if (elem.mozRequestFullScreen) {
-                elem.mozRequestFullScreen();
-            } else if (elem.msRequestFullscreen) {
-                elem.msRequestFullscreen();
-            }
+        // For kiosk mode, use server-side fullscreen control
+        if (this.socket) {
+            this.socket.emit('toggle-fullscreen');
         }
     }
 

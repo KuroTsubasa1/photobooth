@@ -210,6 +210,11 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('toggle-fullscreen', (data) => {
+    console.log('Toggling fullscreen:', data.fullscreen);
+    socket.broadcast.emit('fullscreen-toggled', data);
+  });
+
   socket.on('disconnect', () => {
     logger.info('iPad client disconnected');
   });
